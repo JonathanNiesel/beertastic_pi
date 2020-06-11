@@ -70,7 +70,7 @@ class Threshold_Form(FlaskForm):
     temperature = StringField('Temperature', validators=[DataRequired()])
     submit = SubmitField('Save')
 
-def gen(camera):
+def gen():
     while True:
         frame = cam.get_image()
         yield (b'--frame\r\n'
@@ -126,7 +126,7 @@ def chart_data():
 
 @application.route('/video_feed')
 def video_feed():
-    return Response(gen(video_stream),
+    return Response(gen(),
                     mimetype='multipart/x-mixed-replace; boundary=frame')
 
 if __name__ == '__main__':
