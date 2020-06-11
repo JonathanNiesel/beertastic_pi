@@ -11,8 +11,7 @@ from wtforms.validators import DataRequired
 import sys
 from phue import Bridge
 import logging
-import pygame
-import pygame.camera
+from camera import VideoCamera
 
 logging.basicConfig()
 application = Flask(__name__)
@@ -33,16 +32,6 @@ bridge_ip = '192.168.1.65'
 smart_plug_id = 5
 # update frequency for chart in seconds
 update_frequency = 5
-
-try:
-    pygame.camera.init()
-    cam = pygame.camera.Camera("/dev/video0",(640,480))
-    cam.start()
-    webcam=True
-except:
-    print("webcam not working")
-    webcam=False
-
 
 def turn_plug(bool_on_off):
     # This function will set the plug either on or off, depending on input arg
@@ -70,9 +59,9 @@ class Threshold_Form(FlaskForm):
     temperature = StringField('Temperature', validators=[DataRequired()])
     submit = SubmitField('Save')
 
-def gen():
+def gen(camera):
     while True:
-        frame = cam.get_image()
+        frame = camera.get_frame()
         yield (b'--frame\r\n'
                b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n\r\n')
 
@@ -126,7 +115,7 @@ def chart_data():
 
 @application.route('/video_feed')
 def video_feed():
-    return Response(gen(),
+    return Response(gen(VideoCamera()),
                     mimetype='multipart/x-mixed-replace; boundary=frame')
 
 if __name__ == '__main__':
