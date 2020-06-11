@@ -5,15 +5,20 @@ import os
 from datetime import datetime
 import numpy as np
 from flask import Flask, Response, render_template, flash, redirect
-
-import time
+from flask_wtf import FlaskForm
+from wtforms import StringField, PasswordField, BooleanField, SubmitField
+from wtforms.validators import DataRequired
 import sys
 from phue import Bridge
 import logging
 
+logging.basicConfig()
 application = Flask(__name__)
 random.seed()  # Initialize the random number generator
 
+# Configuration
+SECRET_KEY = os.urandom(32)
+application.config['SECRET_KEY'] = SECRET_KEY
 #sensor = '/sys/bus/w1/devices/28-01144fc1f1aa/w1_slave'
 sensor1 = '/sys/bus/w1/devices/28-01144fedbdaa/w1_slave'
 sensor2 = '/sys/bus/w1/devices/28-0114506580aa/w1_slave'
@@ -21,49 +26,34 @@ sensor3 = '/sys/bus/w1/devices/28-01145094fcaa/w1_slave'
 
 data_file = 'data/temperature_data.csv'
 threshold_file = 'data/tempthreshold.txt'
+bridge_ip = '192.168.1.65'
+smart_plug_id = 5
+# update frequency for chart in seconds
+update_frequency = 5
 
+def turn_plug(bool_on_off):
+    # This function will set the plug either on or off, depending on input arg
+    # Function returns status of plug (True for plug is on, False for plug is off)
+    b.set_light(smart_plug_id, 'on', bool_on_off)
+    light_on = b.get_light(smart_plug_id, 'on')
+    return light_on
 
-logging.basicConfig()
-b = Bridge('192.168.1.65')
+# try to connect to smart plug system
+try:
+    b = Bridge(bridge_ip)
+    temp_control = True
+except:
+    print("Could not connect to Bridge")
+    print("Automatic temperature control will not work")
+    temp_control = False
 # If the app is not registered and the button is not pressed, press the button and call connect() (this only needs to be run a single$
 #b.connect()
 
-def turn_light(bool_on_off):
-    b.set_light(5, 'on', bool_on_off)
-    light_on = b.get_light(5, 'on')
-    return light_on
+if temp_control:
+    # print initial status of plug
+    print('light on is:' + str(turn_plug(True)))
 
-print('light on is:' + str(turn_light(True)))
-
-def readTempSensor(sensorName) :
-    """Aus dem Systembus lese ich die Temperatur der DS18B20 aus."""
-    f = open(sensorName, 'r')
-    lines = f.readlines()
-    f.close()
-    return lines
- 
-def readTempLines(sensorName) :
-    lines = readTempSensor(sensorName)
-    # Solange nicht die Daten gelesen werden konnten, bin ich hier in einer Endlosschleife
-    while lines[0].strip()[-3:] != 'YES':
-        time.sleep(0.2)
-        lines = readTempSensor(sensorName)
-    temperaturStr = lines[1].find('t=')
-    # Ich überprüfe ob die Temperatur gefunden wurde.
-    if temperaturStr != -1 :
-        tempData = lines[1][temperaturStr+2:]
-        tempCelsius = float(tempData) / 1000.0
-        return tempCelsius
-
-from flask_wtf import FlaskForm
-from wtforms import StringField, PasswordField, BooleanField, SubmitField
-from wtforms.validators import DataRequired
-
-import os
-SECRET_KEY = os.urandom(32)
-application.config['SECRET_KEY'] = SECRET_KEY
-
-class LoginForm(FlaskForm):
+class Threshold_Form(FlaskForm):
     temperature = StringField('Temperature', validators=[DataRequired()])
     submit = SubmitField('Save')
 
@@ -72,7 +62,7 @@ def index():
     # read temperature threshold file
     with open(threshold_file,'r') as f:
         forward_message = f.read()
-    form = LoginForm()
+    form = Threshold_Form()
     if form.validate_on_submit():
         flash('Temperature {}'.format(
             form.temperature.data))
@@ -82,16 +72,16 @@ def index():
                            forward_message=form.temperature.data) 
     return render_template('index.html',form=form,
                            forward_message=forward_message) 
-#    return render_template('index.html')
 
 @application.route('/deletealldata')
 def deletealldata():
+    # This endpoint will delete temperature file
     os.remove(data_file)
     return "file deleted"
 
-
 @application.route('/chart-data')
 def chart_data():
+    # This function returns input data for chart, base on javascript snippet in index.html page
     def get_temperature_data():
         while True:
             my_data = np.genfromtxt(data_file, delimiter=',', dtype='str')
@@ -105,15 +95,15 @@ def chart_data():
             curr_temp = sensor1[-1]
             with open(threshold_file,'r') as f:
                 threshold_temp = float(f.read())
-            if curr_temp<threshold_temp:
-               turn_light(True)
-            else: 
-               turn_light(False)
+            if temp_control:
+                if curr_temp<threshold_temp:
+                   turn_plug(True)
+                else: 
+                   turn_plug(False)
             yield f"data:{json_data}\n\n"
-            time.sleep(5)
+            time.sleep(update_frequency)
     return_values = Response(get_temperature_data(), mimetype='text/event-stream')
     return return_values
-
 
 if __name__ == '__main__':
     application.run(host='0.0.0.0',port=80, debug=True, threaded=True)
