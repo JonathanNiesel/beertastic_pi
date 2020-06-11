@@ -1,0 +1,4 @@
+flask
+phue
+numpy
+flask_wtf
